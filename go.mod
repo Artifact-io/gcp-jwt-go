@@ -1,4 +1,4 @@
-module github.com/someone1/gcp-jwt-go/v2
+module github.com/Artifact-io/gcp-jwt-go/v2
 
 require (
 	cloud.google.com/go v0.76.0
