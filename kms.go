@@ -5,12 +5,13 @@ import (
 	"crypto"
 	"crypto/x509"
 	"encoding/asn1"
+	"encoding/base64"
 	"encoding/pem"
 	"fmt"
 	"math/big"
 
 	kms "cloud.google.com/go/kms/apiv1"
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v4"
 	kmspb "google.golang.org/genproto/googleapis/cloud/kms/v1"
 )
 
@@ -85,9 +86,9 @@ func init() {
 		return SigningMethodKMSES384
 	})
 
-	// HMAC256
+	// HS256
 	SigningMethodKMSHS256 = &SigningMethodKMS{
-		"KMSHMAC256",
+		"KMSHS256",
 		jwt.SigningMethodHS256,
 		crypto.SHA256,
 	}
@@ -138,6 +139,12 @@ func (s *SigningMethodKMS) Sign(signingString string, key interface{}) (string, 
 		return "", jwt.ErrHashUnavailable
 	}
 
+	if s.alg == SigningMethodKMSHS256.alg {
+		return signKMSMac(ctx, config, &kmspb.MacSignRequest{
+			Data: []byte(signingString),
+		})
+	}
+
 	digest := s.hasher.New()
 	_, err := digest.Write([]byte(signingString))
 	if err != nil {
@@ -169,15 +176,16 @@ func (s *SigningMethodKMS) Sign(signingString string, key interface{}) (string, 
 	}
 
 	// Do the call
-	return signKMS(ctx, config, asymmetricSignRequest, ecdsaMethod)
+	return signKMSAsymmetric(ctx, config, asymmetricSignRequest, ecdsaMethod)
+
 }
 
-// KMSVerfiyKeyfunc is a helper meant that returns a jwt.Keyfunc. It will handle pulling and selecting the certificates
+// KMSVerifyAsymmetricKeyfunc is a helper meant that returns a jwt.Keyfunc. It will handle pulling and selecting the certificates
 // to verify signatures with, caching the public key in memory. It is not valid to modify the KMSConfig provided after
 // calling this function, you must call this again if changes to the config's KeyPath are made. Note that the public key
 // is retrieved when creating the key func and returned for each call to the returned jwt.Keyfunc.
 // https://cloud.google.com/kms/docs/retrieve-public-key#kms-howto-retrieve-public-key-go
-func KMSVerfiyKeyfunc(ctx context.Context, config *KMSConfig) (jwt.Keyfunc, error) {
+func KMSVerifyAsymmetricKeyfunc(ctx context.Context, config *KMSConfig) (jwt.Keyfunc, error) {
 	// The Public Key is static for the key version, so grab it now and re-use it as needed
 	var publicKey interface{}
 	keyVersion := config.KeyID()
@@ -187,6 +195,7 @@ func KMSVerfiyKeyfunc(ctx context.Context, config *KMSConfig) (jwt.Keyfunc, erro
 		if err != nil {
 			return nil, err
 		}
+		defer c.Close()
 		client = c
 	}
 
@@ -221,20 +230,97 @@ func KMSVerfiyKeyfunc(ctx context.Context, config *KMSConfig) (jwt.Keyfunc, erro
 	}, nil
 }
 
+func KMSVerifyMacKeyfunc(ctx context.Context, config *KMSConfig) (jwt.Keyfunc, error) {
+	keyVersion := config.KeyID()
+
+	return func(token *jwt.Token) (interface{}, error) {
+		// Make sure we have the proper header alg
+		if _, ok := token.Method.(*SigningMethodKMS); !ok {
+			return nil, fmt.Errorf("gcpjwt: unexpected signing method: %v", token.Header["alg"])
+		}
+
+		if kid, ok := token.Header["kid"].(string); ok {
+			if kid != keyVersion {
+				return nil, fmt.Errorf("gcpjwt: unknown kid `%s` found in header", kid)
+			}
+		}
+
+		return config, nil
+	}, nil
+}
+
 // Verify does a pass-thru to the appropriate jwt.SigningMethod for this signing algorithm and expects the same key
 // https://cloud.google.com/kms/docs/create-validate-signatures#validate_ec_signature
 // https://cloud.google.com/kms/docs/create-validate-signatures#validate_rsa_signature
 func (s *SigningMethodKMS) Verify(signingString, signature string, key interface{}) error {
-	return s.override.Verify(signingString, signature, key)
+	if s.alg == SigningMethodKMSHS256.alg {
+		config, ok := key.(*KMSConfig)
+		if !ok {
+			return fmt.Errorf("gcpjwt: unexpected key type: %T", key)
+		}
+
+		ctx := context.Background()
+		client := config.KMSClient
+		if client == nil {
+			c, err := kms.NewKeyManagementClient(ctx)
+			if err != nil {
+				return err
+			}
+			defer c.Close()
+			client = c
+		}
+
+		resp, err := client.MacVerify(ctx, &kmspb.MacVerifyRequest{
+			Name: config.KeyPath,
+			Data: []byte(signingString),
+			Mac:  []byte(signature),
+		})
+		if err != nil {
+			return err
+		}
+
+		if !resp.Success || !resp.VerifiedSuccessIntegrity {
+			return fmt.Errorf("gcpjwt: signature verification failed")
+		}
+
+		return nil
+
+	} else {
+		return s.override.Verify(signingString, signature, key)
+	}
 }
 
-func signKMS(ctx context.Context, config *KMSConfig, request *kmspb.AsymmetricSignRequest, ecdsaMethod *jwt.SigningMethodECDSA) (string, error) {
+func signKMSMac(ctx context.Context, config *KMSConfig, request *kmspb.MacSignRequest) (string, error) {
 	client := config.KMSClient
 	if client == nil {
 		c, err := kms.NewKeyManagementClient(ctx)
 		if err != nil {
 			return "", err
 		}
+		defer c.Close()
+		client = c
+	}
+
+	// Add key name to request
+	request.Name = config.KeyPath
+
+	// Do the call
+	signResp, err := client.MacSign(ctx, request)
+	if err != nil {
+		return "", err
+	}
+
+	return base64.RawURLEncoding.EncodeToString(signResp.Mac), nil
+}
+
+func signKMSAsymmetric(ctx context.Context, config *KMSConfig, request *kmspb.AsymmetricSignRequest, ecdsaMethod *jwt.SigningMethodECDSA) (string, error) {
+	client := config.KMSClient
+	if client == nil {
+		c, err := kms.NewKeyManagementClient(ctx)
+		if err != nil {
+			return "", err
+		}
+		defer c.Close()
 		client = c
 	}
 
@@ -271,5 +357,5 @@ func signKMS(ctx context.Context, config *KMSConfig, request *kmspb.AsymmetricSi
 		signResp.Signature = append(rBytesPadded, sBytesPadded...)
 	}
 
-	return jwt.EncodeSegment(signResp.Signature), nil
+	return base64.RawURLEncoding.EncodeToString(signResp.Signature), nil
 }

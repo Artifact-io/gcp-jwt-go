@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v4"
 )
 
 type testKey struct {
@@ -76,7 +76,7 @@ func TestKMSSignAndVerify(t *testing.T) {
 			config := &KMSConfig{
 				KeyPath: tt.KeyPath,
 			}
-			keyFunc, err := KMSVerfiyKeyfunc(ctx, config)
+			keyFunc, err := KMSVerifyAsymmetricKeyfunc(ctx, config)
 			if err != nil {
 				t.Errorf("could not get keyFunc: %v", err)
 				return
@@ -343,7 +343,7 @@ func TestKMSVerfiyKeyfunc(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if keyFunc, gotErr := KMSVerfiyKeyfunc(tt.args.ctx, tt.args.config); (gotErr != nil) != tt.wantKeyFuncErr {
+			if keyFunc, gotErr := KMSVerifyAsymmetricKeyfunc(tt.args.ctx, tt.args.config); (gotErr != nil) != tt.wantKeyFuncErr {
 				t.Errorf("VerifyKeyfunc() error = %v, wantErr %v", gotErr, tt.wantKeyFuncErr)
 			} else if gotErr == nil {
 				if _, gotErr = keyFunc(tt.args.token); (gotErr != nil) != tt.wantErr {
