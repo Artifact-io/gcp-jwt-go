@@ -39,6 +39,9 @@ var (
 	// SigningMethodKMSES384 leverages Cloud KMS for the ES256 algorithm, use with:
 	// EC_SIGN_P384_SHA384
 	SigningMethodKMSES384 *SigningMethodKMS
+	// SigningMethodKMSES384 leverages Cloud KMS for the HMAC256 algorithm, use with:
+	// HMAC_SHA256
+	SigningMethodKMSHS256 *SigningMethodKMS
 )
 
 func init() {
@@ -80,6 +83,16 @@ func init() {
 	}
 	jwt.RegisterSigningMethod(SigningMethodKMSES384.Alg(), func() jwt.SigningMethod {
 		return SigningMethodKMSES384
+	})
+
+	// HMAC256
+	SigningMethodKMSHS256 = &SigningMethodKMS{
+		"KMSHMAC256",
+		jwt.SigningMethodHS256,
+		crypto.SHA256,
+	}
+	jwt.RegisterSigningMethod(SigningMethodKMSHS256.Alg(), func() jwt.SigningMethod {
+		return SigningMethodKMSHS256
 	})
 }
 
