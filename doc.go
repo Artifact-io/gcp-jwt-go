@@ -15,7 +15,7 @@ algorithms such as `gcpjwt.SigningMethodKMSRS256.Override()` and `gcpjwt.Signing
 Example:
 
 	import (
-		"github.com/someone1/gcp-jwt-go"
+		"github.com/Artifact-io/gcp-jwt-go"
 	)
 
 	func init() {
@@ -54,7 +54,7 @@ Example:
 		"net/http"
 
 		"github.com/golang-jwt/jwt"
-		"github.com/someone1/gcp-jwt-go"
+		"github.com/Artifact-io/gcp-jwt-go"
 		"google.golang.org/appengine" // only on AppEngine Standard when using the SigningMethodAppEngine signing method
 	)
 
@@ -119,7 +119,7 @@ Example:
 		"strings"
 
 		"github.com/golang-jwt/jwt"
-		"github.com/someone1/gcp-jwt-go"
+		"github.com/Artifact-io/gcp-jwt-go"
 	)
 
 	func validateToken(ctx context.Context, tokenString string) (*jwt.Token, error) {

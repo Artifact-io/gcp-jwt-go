@@ -17,7 +17,7 @@ import (
 // Audience claim to the one provided, or use https:// + request.Host if blank. NOTE: If using the signJwt method,
 // you MUST call gcpjwt.SigningMethodIAMJWT.Override().
 //
-// Complimentary to https://github.com/someone1/gcp-jwt-go/oauth2
+// Complimentary to https://github.com/Artifact-io/gcp-jwt-go/oauth2
 func NewHandler(ctx context.Context, config *gcpjwt.IAMConfig, audience string) func(http.Handler) http.Handler {
 	ctx = gcpjwt.NewIAMContext(ctx, config)
 
